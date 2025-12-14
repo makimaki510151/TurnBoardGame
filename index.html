@@ -12,13 +12,77 @@
         <h1>⚔️ マルチプレイヤー・ボードゲーム 🛡️</h1>
     </header>
 
-    <section id="character-setup">
-        <h2>🧑‍💻 キャラクター設定</h2>
-        <textarea id="character-data-input" placeholder="ここに事前に作成したキャラのJSONデータをペーストしてください..."></textarea>
-        <button onclick="importCharacter()">キャラクターをロード</button>
-        <p id="character-status-display">**キャラクター未ロード**</p>
+    <section id="character-creation">
+        <h2>🎨 キャラクター制作</h2>
+        <div id="creation-form">
+            <label for="char-name">名前:</label>
+            <input type="text" id="char-name" value="勇者" required><br><br>
+
+            <label for="char-level">レベル (1-10):</label>
+            <input type="number" id="char-level" value="1" min="1" max="10" oninput="updateStatsAllocation()">
+            
+            <p>残りステータスポイント: <span id="remaining-points">5</span></p>
+            
+            <div class="stat-control">
+                <label for="stat-str">筋力 (STR):</label>
+                <input type="number" id="stat-str" value="1" min="1" max="10" oninput="updateStatsAllocation()">
+            </div>
+            <div class="stat-control">
+                <label for="stat-dex">器用 (DEX):</label>
+                <input type="number" id="stat-dex" value="1" min="1" max="10" oninput="updateStatsAllocation()">
+            </div>
+            <div class="stat-control">
+                <label for="stat-vit">体力 (VIT):</label>
+                <input type="number" id="stat-vit" value="1" min="1" max="10" oninput="updateStatsAllocation()">
+            </div>
+            <div class="stat-control">
+                <label for="stat-int">知力 (INT):</label>
+                <input type="number" id="stat-int" value="1" min="1" max="10" oninput="updateStatsAllocation()">
+            </div>
+            <div class="stat-control">
+                <label for="stat-agi">敏捷 (AGI):</label>
+                <input type="number" id="stat-agi" value="1" min="1" max="10" oninput="updateStatsAllocation()">
+            </div>
+            <div class="stat-control">
+                <label for="stat-luk">幸運 (LUK):</label>
+                <input type="number" id="stat-luk" value="1" min="1" max="10" oninput="updateStatsAllocation()">
+            </div>
+            
+            <hr>
+            
+            <h3>スキル選択 (2つまで)</h3>
+            <div class="skill-select-group">
+                <label for="char-skill-1">スキル 1:</label>
+                <select id="char-skill-1">
+                    <option value="">スキルデータ読み込み中...</option>
+                </select>
+                <p id="skill-desc-1" class="skill-desc"></p>
+            </div>
+            <div class="skill-select-group">
+                <label for="char-skill-2">スキル 2:</label>
+                <select id="char-skill-2">
+                    <option value="">スキルデータ読み込み中...</option>
+                </select>
+                <p id="skill-desc-2" class="skill-desc"></p>
+            </div>
+            
+            <button onclick="createCharacter()">キャラクターを作成</button>
+            <button onclick="saveCharacter()">💾 作成キャラを保存</button>
+        </div>
     </section>
+
+    <hr>
     
+    <section id="character-management">
+        <h2>📦 保存済みキャラクター</h2>
+        <p id="local-char-count">現在 0 体のキャラクターがブラウザに保存されています。</p>
+        <ul id="saved-character-list">
+            </ul>
+        
+        <p>現在ゲームに持ち込むキャラクター:</p>
+        <p id="current-selected-char">**未選択**</p>
+    </section>
+
     <hr>
 
     <section id="lobby-section">
@@ -26,7 +90,7 @@
         <div id="host-controls">
             <label for="enemy-level">敵レベル:</label>
             <input type="number" id="enemy-level" value="1" min="1" max="99">
-            <button onclick="hostGame()">ホストとして部屋を建てる</button>
+            <button onclick="hostGame()">ホストとして部屋を建てる & ゲーム開始</button> 
             <p id="host-info" style="display:none;">**部屋作成済み。他のプレイヤーは以下のIPアドレスで参加できます。**</p>
         </div>
         
@@ -51,11 +115,16 @@
             <p id="current-turn">現在のターン: プレイヤーA</p>
             <p id="action-message">行動を選択してください。</p>
         </div>
+        
+        <div id="current-unit-stats">
+            <p>移動力: <span id="display-move">0</span> / <span id="display-max-move">0</span></p>
+        </div>
 
         <div id="action-panel">
-            <button onclick="moveCharacter()">移動</button>
-            <button onclick="useSkill(1)">スキル1</button>
-            <button onclick="endTurn()">ターン終了</button>
+            <button id="move-button" onclick="handleMoveAction()">移動</button>
+            <div id="skill-buttons">
+                </div>
+            <button id="end-turn-button" onclick="endTurn()">ターン終了</button>
         </div>
     </section>
 

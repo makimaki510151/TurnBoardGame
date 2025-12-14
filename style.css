@@ -46,7 +46,7 @@ button:hover {
     background-color: #0056b3;
 }
 
-textarea, input[type="text"], input[type="number"] {
+textarea, input[type="text"], input[type="number"], select {
     width: 90%;
     padding: 10px;
     margin-bottom: 10px;
@@ -55,31 +55,109 @@ textarea, input[type="text"], input[type="number"] {
     box-sizing: border-box;
 }
 
+/* キャラクター制作セクションのスタイル */
+#character-creation input[type="text"], 
+#character-creation input[type="number"] {
+    width: auto;
+    margin-right: 20px;
+    padding: 8px;
+}
+
+#creation-form {
+    padding: 15px;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    margin-bottom: 20px;
+}
+
+.stat-control {
+    display: inline-block;
+    margin-right: 30px;
+}
+
+/* スキル選択グループ */
+.skill-select-group {
+    margin-bottom: 15px;
+    padding: 10px;
+    border: 1px dashed #ccc;
+    border-radius: 4px;
+}
+
+.skill-desc {
+    margin-top: 5px;
+    font-size: 0.9em;
+    color: #555;
+    padding-left: 5px;
+}
+
+#saved-character-list {
+    list-style: none;
+    padding: 0;
+}
+
+#saved-character-list li {
+    padding: 10px;
+    margin-bottom: 8px;
+    background-color: #e9ecef;
+    border-radius: 4px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.char-select-btn {
+    background-color: #28a745;
+    padding: 5px 10px;
+    font-size: 0.9em;
+}
+
+.char-select-btn:hover {
+    background-color: #1e7e34;
+}
+
 /* ゲームボードのスタイル */
 #game-board {
     display: grid;
-    /* 例として10x10のボードを設定 */
     grid-template-columns: repeat(10, 1fr);
     grid-template-rows: repeat(10, 1fr);
-    width: 500px; /* ボードのサイズ */
+    width: 500px; 
     height: 500px;
     margin: 20px auto;
     border: 2px solid #333;
+    /* クリックを無効にするオーバーレイ */
+    position: relative;
 }
 
 .tile {
     border: 1px solid #ddd;
-    background-color: #a0d4a0; /* 草地イメージ */
+    background-color: #a0d4a0; 
     display: flex;
     justify-content: center;
     align-items: center;
     font-size: 10px;
     box-sizing: border-box;
+    cursor: default;
 }
 
 .tile.occupied {
-    background-color: #ffcc99; /* ユニットがいるマス */
+    background-color: #ffcc99; 
 }
+
+/* 行動範囲/ターゲット範囲のハイライト */
+.tile.move-range {
+    background-color: #6a9ed9; /* 移動可能範囲：青 */
+    cursor: pointer;
+}
+
+.tile.target-range {
+    background-color: #d96a6a; /* ターゲット範囲：赤 */
+    cursor: crosshair;
+}
+
+.tile.hover-highlight {
+    box-shadow: inset 0 0 0 3px yellow;
+}
+
 
 .player-unit, .enemy-unit {
     width: 80%;
@@ -90,6 +168,8 @@ textarea, input[type="text"], input[type="number"] {
     align-items: center;
     font-weight: bold;
     color: white;
+    z-index: 10;
+    position: relative; /* ハイライトの上に表示するため */
 }
 
 .player-unit {

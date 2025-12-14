@@ -1,0 +1,50 @@
+[
+    {
+        "id": 1,
+        "name": "突撃 (Rush)",
+        "description": "移動力を全て消費し、移動先の単一の敵にSTRに応じた物理ダメージを与える。",
+        "type": "physical",
+        "base_multiplier": 1.5,
+        "stat_dependency": "STR",
+        "cost": 0,
+        "range_type": "move_path",
+        "range_value": "MOVE",
+        "target_shape": "single"
+    },
+    {
+        "id": 2,
+        "name": "回復の光 (Heal)",
+        "description": "自身または周囲1マスにいる味方単体のHPをVITに応じた量回復する。",
+        "type": "support",
+        "base_multiplier": 2.0,
+        "stat_dependency": "VIT",
+        "cost": 5,
+        "range_type": "fixed",
+        "range_value": 1,
+        "target_shape": "single"
+    },
+    {
+        "id": 3,
+        "name": "狙い撃ち (Sniping)",
+        "description": "遠距離（DEX依存の射程）から単一の敵にDEXに応じた物理ダメージを与える。",
+        "type": "physical",
+        "base_multiplier": 1.2,
+        "stat_dependency": "DEX",
+        "cost": 3,
+        "range_type": "stat_dependent",
+        "range_value": "DEX",
+        "target_shape": "single"
+    },
+    {
+        "id": 4,
+        "name": "フレイムバースト (Flame Burst)",
+        "description": "指定地点の周囲十字型（縦3マス、横3マス）にいる全ての対象に魔法ダメージを与える。",
+        "type": "magic",
+        "base_multiplier": 1.8,
+        "stat_dependency": "INT",
+        "cost": 10,
+        "range_type": "fixed",
+        "range_value": 3,
+        "target_shape": "cross"
+    }
+]
