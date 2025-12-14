@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>マルチボードゲーム</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <header>
+        <h1>⚔️ マルチプレイヤー・ボードゲーム 🛡️</h1>
+    </header>
+
+    <section id="character-setup">
+        <h2>🧑‍💻 キャラクター設定</h2>
+        <textarea id="character-data-input" placeholder="ここに事前に作成したキャラのJSONデータをペーストしてください..."></textarea>
+        <button onclick="importCharacter()">キャラクターをロード</button>
+        <p id="character-status-display">**キャラクター未ロード**</p>
+    </section>
+    
+    <hr>
+
+    <section id="lobby-section">
+        <h2>🏠 ロビーと接続</h2>
+        <div id="host-controls">
+            <label for="enemy-level">敵レベル:</label>
+            <input type="number" id="enemy-level" value="1" min="1" max="99">
+            <button onclick="hostGame()">ホストとして部屋を建てる</button>
+            <p id="host-info" style="display:none;">**部屋作成済み。他のプレイヤーは以下のIPアドレスで参加できます。**</p>
+        </div>
+        
+        <div id="join-controls">
+            <label for="server-ip">ホストのIPアドレス:</label>
+            <input type="text" id="server-ip" placeholder="例: 192.168.1.100:8080">
+            <button onclick="joinGame()">ゲームに参加</button>
+        </div>
+
+        <p id="connection-status">接続ステータス: 未接続</p>
+        <ul id="player-list"></ul>
+    </section>
+
+    <hr>
+
+    <section id="game-board-section" class="hidden">
+        <h2>🗺️ ゲーム盤面</h2>
+        <div id="game-board">
+            </div>
+
+        <div id="game-info">
+            <p id="current-turn">現在のターン: プレイヤーA</p>
+            <p id="action-message">行動を選択してください。</p>
+        </div>
+
+        <div id="action-panel">
+            <button onclick="moveCharacter()">移動</button>
+            <button onclick="useSkill(1)">スキル1</button>
+            <button onclick="endTurn()">ターン終了</button>
+        </div>
+    </section>
+
+    <script src="script.js"></script>
+</body>
+</html>

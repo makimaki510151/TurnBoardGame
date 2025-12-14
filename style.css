@@ -1,0 +1,105 @@
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    margin: 0;
+    padding: 0;
+    background-color: #f4f4f9;
+    color: #333;
+    text-align: center;
+}
+
+header {
+    background-color: #333;
+    color: white;
+    padding: 20px 0;
+    margin-bottom: 20px;
+}
+
+section {
+    max-width: 900px;
+    margin: 20px auto;
+    padding: 20px;
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 4px 8px rgba(0, 0, 0, 0.1);
+    text-align: left;
+}
+
+h2 {
+    color: #0056b3;
+    border-bottom: 2px solid #ccc;
+    padding-bottom: 10px;
+    margin-top: 0;
+}
+
+button {
+    background-color: #007bff;
+    color: white;
+    padding: 10px 20px;
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    margin: 5px;
+    transition: background-color 0.3s;
+}
+
+button:hover {
+    background-color: #0056b3;
+}
+
+textarea, input[type="text"], input[type="number"] {
+    width: 90%;
+    padding: 10px;
+    margin-bottom: 10px;
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    box-sizing: border-box;
+}
+
+/* ゲームボードのスタイル */
+#game-board {
+    display: grid;
+    /* 例として10x10のボードを設定 */
+    grid-template-columns: repeat(10, 1fr);
+    grid-template-rows: repeat(10, 1fr);
+    width: 500px; /* ボードのサイズ */
+    height: 500px;
+    margin: 20px auto;
+    border: 2px solid #333;
+}
+
+.tile {
+    border: 1px solid #ddd;
+    background-color: #a0d4a0; /* 草地イメージ */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 10px;
+    box-sizing: border-box;
+}
+
+.tile.occupied {
+    background-color: #ffcc99; /* ユニットがいるマス */
+}
+
+.player-unit, .enemy-unit {
+    width: 80%;
+    height: 80%;
+    border-radius: 50%;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-weight: bold;
+    color: white;
+}
+
+.player-unit {
+    background-color: #007bff;
+}
+
+.enemy-unit {
+    background-color: #dc3545;
+}
+
+.hidden {
+    display: none;
+}
