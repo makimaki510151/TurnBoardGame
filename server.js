@@ -1,21 +1,24 @@
 // server.js (Node.js + wsライブラリを想定)
-// 【注意】本ファイルはクライアントのブラウザ上ではなく、ホスト側のNode.js環境で動作させます。
 
 const WebSocket = require('ws');
 const fs = require('fs');
 
-// ポート番号は適宜変更してください
 const PORT = 8080;
 const wss = new WebSocket.Server({ port: PORT });
 
-let players = []; // 接続中のプレイヤーとキャラデータ (ws, id, name, characterData, unit)
-let enemyLevel = 1;
-let gameState = null; // ゲームの全体状態 (boardSize, units, log)
-let turnOrder = [];
-let currentTurnIndex = 0;
-let availableSkills = []; // スキルデータをロード
+// プレイヤー情報: ws, id, name, characterData, team, isHost, unit
+let players = []; 
+let gameState = null; 
+// ターン管理用: チームAのユニットIDリスト、チームBのユニットIDリスト
+let teamUnitsA = []; 
+let teamUnitsB = [];
+let currentTeamTurn = 'A'; 
+let currentUnitIndex = 0; 
+
+let availableSkills = []; 
 
 const TILE_SIZE = 10; 
+const ZONE_WIDTH = 3; // 自陣・敵陣の幅
 
 console.log(`WebSocketサーバーをポート ${PORT} で起動しました。`);
 
@@ -40,12 +43,17 @@ wss.on('connection', function connection(ws, req) {
             
             switch (data.type) {
                 case 'PLAYER_JOIN':
-                    handlePlayerJoin(ws, data.character, playerIP);
+                    handlePlayerJoin(ws, data.character, data.team, playerIP);
                     break;
-                case 'HOST_START_GAME_IMMEDIATELY':
+                case 'UPDATE_TEAM':
+                    handleTeamUpdate(ws, data.team);
+                    break;
+                case 'UPDATE_CHARACTER':
+                    handleCharacterUpdate(ws, data.character);
+                    break;
+                case 'HOST_START_GAME_PVP':
                     if (isHostWs(ws)) {
-                        enemyLevel = data.enemyLevel || 1;
-                        startGame();
+                        startGamePvP();
                     }
                     break;
                 case 'ACTION_MOVE':
@@ -72,43 +80,81 @@ function isHostWs(ws) {
 }
 
 /**
- * プレイヤー参加時の処理
+ * プレイヤー参加時の処理 (変更なし)
  */
-function handlePlayerJoin(ws, character, ip) {
-    const isHost = players.length === 0; 
-    
-    // プレイヤーユニットIDはws.idを使用し、ユニットとプレイヤーを紐づける
-    const newPlayer = {
-        ws: ws,
-        id: ws.id, 
-        name: character.name,
-        level: character.level,
-        isHost: isHost,
-        ip: ip,
-        characterData: character,
-        unit: null, 
-    };
-    players.push(newPlayer);
-    
-    console.log(`${newPlayer.name} が参加しました。ホスト: ${newPlayer.isHost}`);
+function handlePlayerJoin(ws, character, team, ip) {
+    let player = players.find(p => p.ws === ws);
+    const isHost = players.length === 0;
 
+    if (!player) {
+        player = {
+            ws: ws,
+            id: ws.id, 
+            name: character.name,
+            level: character.level,
+            isHost: isHost,
+            ip: ip,
+            characterData: character,
+            team: team,
+            unit: null, 
+        };
+        players.push(player);
+    } else {
+        player.characterData = character;
+        player.team = team;
+        player.name = character.name;
+        player.level = character.level;
+    }
+
+    console.log(`${player.name} (チーム${player.team || '未定'}) が参加しました。ホスト: ${player.isHost}`);
     broadcastPlayerList();
 }
 
 /**
- * プレイヤーが退出した時の処理
+ * チーム更新時の処理 (変更なし)
+ */
+function handleTeamUpdate(ws, team) {
+    const player = players.find(p => p.ws === ws);
+    if (player) {
+        player.team = team;
+        console.log(`${player.name} がチーム ${team} に変更しました。`);
+        broadcastPlayerList();
+    }
+}
+
+/**
+ * キャラクターデータ更新時の処理 (変更なし)
+ */
+function handleCharacterUpdate(ws, character) {
+    const player = players.find(p => p.ws === ws);
+    if (player) {
+        player.characterData = character;
+        player.name = character.name;
+        player.level = character.level;
+        console.log(`${player.name} がキャラクターデータを更新しました。`);
+        broadcastPlayerList();
+    }
+}
+
+
+/**
+ * プレイヤーが退出した時の処理 (変更なし)
  */
 function handlePlayerLeave(ws) {
     const index = players.findIndex(p => p.ws === ws);
     if (index !== -1) {
         const name = players[index].name;
         
-        // ユニットを盤面から削除 (ゲーム中の場合)
         if (gameState && players[index].unit) {
-            gameState.units = gameState.units.filter(u => u.id !== players[index].unit.id);
-            // ターン順からも削除
-            turnOrder = turnOrder.filter(id => id !== players[index].unit.id);
-            // ターンインデックスの調整が必要だが、ここでは簡易化
+            const unitId = players[index].unit.id;
+            gameState.units = gameState.units.filter(u => u.id !== unitId);
+            
+            teamUnitsA = teamUnitsA.filter(id => id !== unitId);
+            teamUnitsB = teamUnitsB.filter(id => id !== unitId);
+            
+            if (currentTeamTurn === players[index].team) {
+                 moveToNextTurn(); 
+            }
             broadcastGameStateUpdate();
         }
         
@@ -124,13 +170,14 @@ function handlePlayerLeave(ws) {
 }
 
 /**
- * 全員に現在のプレイヤーリストを送信
+ * 全員に現在のプレイヤーリストを送信 (変更なし)
  */
 function broadcastPlayerList() {
     const playerList = players.map(p => ({
         name: p.name,
         level: p.level,
-        isHost: p.isHost
+        isHost: p.isHost,
+        team: p.team
     }));
 
     const message = JSON.stringify({
@@ -146,21 +193,20 @@ function broadcastPlayerList() {
 }
 
 // -----------------------------------
-// ゲームロジック
+// ゲームロジック (PVP) (変更なし)
 // -----------------------------------
 
-/**
- * プレイヤーのゲームアクションを処理
- */
 function handleGameAction(ws, data) {
     const player = players.find(p => p.ws === ws);
     const unit = player ? gameState.units.find(u => u.id === player.unit.id) : null;
     
     if (!player || !unit || !gameState) return;
 
-    // ターンチェック
-    if (turnOrder[currentTurnIndex] !== unit.id) {
-        ws.send(JSON.stringify({ type: 'ERROR', message: '今はあなたのターンではありません。' }));
+    const currentTeamList = (currentTeamTurn === 'A' ? teamUnitsA : teamUnitsB);
+    const currentTurnUnitId = currentTeamList[currentUnitIndex];
+    
+    if (unit.team !== currentTeamTurn || unit.id !== currentTurnUnitId) {
+        ws.send(JSON.stringify({ type: 'ERROR', message: `今はチーム ${currentTeamTurn} の ${gameState.units.find(u => u.id === currentTurnUnitId).name} のターンです。` }));
         return;
     }
     
@@ -175,8 +221,7 @@ function handleGameAction(ws, data) {
                 success = executeSkill(unit, data.skillId, data.targetX, data.targetY);
                 break;
             case 'ACTION_END_TURN':
-                // ターン終了
-                moveToNextTurn();
+                moveToNextUnit(); 
                 return; 
         }
     } catch (error) {
@@ -192,233 +237,214 @@ function handleGameAction(ws, data) {
     }
 }
 
-/**
- * 移動アクションを実行
- */
+function moveToNextUnit() {
+    const currentTeamList = (currentTeamTurn === 'A' ? teamUnitsA : teamUnitsB);
+    
+    currentUnitIndex++;
+    
+    if (currentUnitIndex >= currentTeamList.length) {
+        moveToNextTeam();
+    } else {
+        sendTurnChangeMessage();
+    }
+}
+
+function moveToNextTeam() {
+    currentTeamTurn = (currentTeamTurn === 'A' ? 'B' : 'A');
+    currentUnitIndex = 0; 
+    
+    gameState.units.forEach(u => {
+        const player = players.find(p => p.unit && p.unit.id === u.id);
+        if (player) {
+            u.currentMove = player.characterData.stats.MAX_MOVE;
+        }
+    });
+
+    sendTurnChangeMessage();
+}
+
+function sendTurnChangeMessage() {
+    const currentTeamList = (currentTeamTurn === 'A' ? teamUnitsA : teamUnitsB);
+    
+    if (currentTeamList.length === 0) {
+        // チームが全滅している場合の処理 (省略)
+        if (currentTeamTurn === 'A' && teamUnitsB.length > 0) {
+            console.log("チームA全滅、チームBの勝利"); return;
+        }
+        if (currentTeamTurn === 'B' && teamUnitsA.length > 0) {
+            console.log("チームB全滅、チームAの勝利"); return;
+        }
+        if (teamUnitsA.length === 0 && teamUnitsB.length === 0) {
+            console.log("引き分け"); return;
+        }
+        
+        moveToNextTeam(); 
+        return;
+    }
+    
+    const currentUnitId = currentTeamList[currentUnitIndex];
+    const nextUnit = gameState.units.find(u => u.id === currentUnitId);
+    
+    if (!nextUnit) {
+        moveToNextUnit(); 
+        return;
+    }
+
+    const turnMessage = {
+        type: 'TURN_CHANGE',
+        currentTeam: currentTeamTurn,
+        currentPlayerId: nextUnit.id,
+        currentPlayerName: nextUnit.name,
+        newState: gameState
+    };
+
+    players.forEach(p => {
+        if (p.ws.readyState === WebSocket.OPEN) {
+            p.ws.send(JSON.stringify({ 
+                ...turnMessage, 
+            }));
+        }
+    });
+    
+    console.log(`ターン: チーム${currentTeamTurn} - ${nextUnit.name} の行動開始`);
+}
+
+
 function executeMove(unit, targetX, targetY) {
     const distance = manhattanDistance(unit.x, unit.y, targetX, targetY);
     
-    if (distance === 0) return false; // 同じ場所
-    if (distance > unit.currentMove) return false; // 移動力不足
+    if (distance === 0) throw new Error("同じ場所への移動はできません。");
+    if (distance > unit.currentMove) throw new Error(`移動力(${unit.currentMove})が不足しています。必要: ${distance}`);
     
-    // ターゲットマスに既にユニットがいるかチェック (簡易版: 障害物チェックは省略)
+    // ターゲットマスに既にユニットがいるかチェック
     const targetOccupied = gameState.units.some(u => u.x === targetX && u.y === targetY);
-    if (targetOccupied) return false; 
+    if (targetOccupied) throw new Error("移動先に他のユニットがいます。");
     
-    // 移動を適用し、移動力を消費
     unit.x = targetX;
     unit.y = targetY;
     unit.currentMove -= distance;
     
-    console.log(`${unit.name} が (${unit.x}, ${unit.y}) に移動。残りMOVE: ${unit.currentMove}`);
+    console.log(`${unit.name} (チーム${unit.team}) が (${unit.x}, ${unit.y}) に移動。残りMOVE: ${unit.currentMove}`);
     return true;
 }
 
-/**
- * スキルアクションを実行
- */
 function executeSkill(unit, skillId, targetX, targetY) {
+    const player = players.find(p => p.unit && p.unit.id === unit.id);
     const skill = availableSkills.find(s => s.id === skillId);
-    if (!skill) throw new Error("無効なスキルIDです。");
+    if (!skill || !player) throw new Error("無効なスキルIDです。");
     
-    // 1. コストチェック (ここでは簡易的にコストなしと仮定)
-    // if (unit.currentMP < skill.cost) throw new Error("MPが不足しています。");
-
-    // 2. 射程チェック (簡易版: 射程範囲内かのみチェック)
-    const stat = unit.characterData.stats[skill.stat_dependency];
+    const stat = player.characterData.stats[skill.stat_dependency];
     let effectiveRange = 0;
     
     if (skill.range_type === 'fixed') {
         effectiveRange = skill.range_value;
     } else if (skill.range_type === 'stat_dependent') {
-        // クライアントと同じ計算式を使用
-        effectiveRange = 2 + Math.floor(unit.characterData.stats.DEX / 2); 
+        effectiveRange = 2 + Math.floor(player.characterData.stats.DEX / 2); 
     }
     
     const distance = manhattanDistance(unit.x, unit.y, targetX, targetY);
     
     if (distance > effectiveRange) throw new Error("射程外です。");
     
-    // 3. ターゲットと効果の適用
     const damageMultiplier = skill.base_multiplier;
     const baseDamage = stat * damageMultiplier; 
 
-    // ターゲット形状に基づき、影響を受けるユニットを検索
     const targets = getUnitsInArea(targetX, targetY, skill.target_shape, skill.range_value);
 
     targets.forEach(targetUnit => {
-        if (targetUnit.isEnemy !== unit.isEnemy) { // 敵であればダメージ、味方であれば回復など（簡易処理）
+        const isEnemy = targetUnit.team !== unit.team; 
+        
+        if (isEnemy && skill.type !== 'support') { 
             targetUnit.hp = Math.max(0, targetUnit.hp - baseDamage);
-            console.log(`${unit.name} が ${targetUnit.name} に ${baseDamage.toFixed(1)} ダメージ！`);
+        } else if (!isEnemy && skill.type === 'support') {
+            targetUnit.hp = Math.min(targetUnit.maxHp, targetUnit.hp + baseDamage);
+        }
+        
+        if (targetUnit.hp <= 0) {
+             gameState.units = gameState.units.filter(u => u.id !== targetUnit.id);
+             console.log(`${targetUnit.name} (チーム${targetUnit.team}) が戦闘不能になりました。`);
+             
+             teamUnitsA = teamUnitsA.filter(id => id !== targetUnit.id);
+             teamUnitsB = teamUnitsB.filter(id => id !== targetUnit.id);
         }
     });
-    
-    // コストを消費
-    // unit.currentMP -= skill.cost;
     
     return true;
 }
 
 /**
- * ターンを次のプレイヤーまたはNPCへ移行
+ * ゲーム開始ロジック (PVP) - 初期配置ロジックを修正
  */
-function moveToNextTurn() {
-    // ターン順をインクリメント
-    currentTurnIndex = (currentTurnIndex + 1) % turnOrder.length;
-    const currentPlayerId = turnOrder[currentTurnIndex];
-    
-    // ターンが移る前に、移動力をリセット
-    gameState.units.forEach(u => {
-        const player = players.find(p => p.unit && p.unit.id === u.id);
-        if (player) {
-            u.currentMove = player.characterData.stats.MAX_MOVE;
-        }
-        // NPCのMOVEもここでリセット可能
-    });
-    
-    const nextUnit = gameState.units.find(u => u.id === currentPlayerId);
-    
-    if (nextUnit && !nextUnit.isEnemy) {
-        // プレイヤーのターン
-        const nextPlayer = players.find(p => p.unit && p.unit.id === nextUnit.id);
-
-        const turnMessage = {
-            type: 'TURN_CHANGE',
-            currentPlayerName: nextUnit.name,
-            newState: gameState // 最新の状態を送信
-        };
-
-        players.forEach(p => {
-            if (p.ws.readyState === WebSocket.OPEN) {
-                 p.ws.send(JSON.stringify({ 
-                    ...turnMessage, 
-                    isYourTurn: (p.id === nextPlayer.id) 
-                }));
-            }
-        });
-    } else {
-        // NPC (敵) のターン処理
-        handleNpcTurn();
-    }
-}
-
-/**
- * ゲーム状態のブロードキャスト
- */
-function broadcastGameStateUpdate() {
-    const updateMessage = JSON.stringify({
-        type: 'STATE_UPDATE',
-        newState: gameState 
-    });
-
-    players.forEach(p => {
-        if (p.ws.readyState === WebSocket.OPEN) {
-            p.ws.send(updateMessage);
-        }
-    });
-}
-
-/**
- * NPC（敵）の行動ロジック処理 (簡易版)
- */
-function handleNpcTurn() {
-    console.log("NPCのターン開始");
-    
-    const npcUnit = gameState.units.find(u => u.isEnemy && u.id === turnOrder[currentTurnIndex]);
-    if (npcUnit) {
-        // 【簡易NPCロジック】: 最も近いプレイヤーユニットに向かって移動
-        const targetPlayer = gameState.units.filter(u => !u.isEnemy).sort((a, b) => {
-            return manhattanDistance(npcUnit.x, npcUnit.y, a.x, a.y) - manhattanDistance(npcUnit.x, npcUnit.y, b.x, b.y);
-        })[0];
-
-        if (targetPlayer) {
-            // 移動処理のシミュレーション
-            const dx = targetPlayer.x - npcUnit.x;
-            const dy = targetPlayer.y - npcUnit.y;
-            
-            let moveAmount = npcUnit.currentMove;
-            
-            // ターゲットに近づく方向へ1マス移動 (簡易)
-            let newX = npcUnit.x;
-            let newY = npcUnit.y;
-            
-            if (Math.abs(dx) > Math.abs(dy)) {
-                newX += (dx > 0 ? 1 : -1);
-            } else if (dy !== 0) {
-                newY += (dy > 0 ? 1 : -1);
-            }
-
-            if (executeMove(npcUnit, newX, newY)) {
-                console.log(`NPCが (${newX}, ${newY}) へ移動`);
-            } else {
-                // 移動できなければ攻撃を試みる
-                // executeSkill(npcUnit, some_skill_id, targetPlayer.x, targetPlayer.y);
-            }
-        }
-    }
-    
-    broadcastGameStateUpdate();
-    
-    // ターン終了
-    moveToNextTurn(); 
-}
-
-/**
- * ゲーム開始ロジック
- */
-function startGame() {
+function startGamePvP() {
     if (gameState !== null) {
         console.log("ゲームは既に開始されています。");
         return;
     }
     
-    console.log(`ゲーム開始！敵レベル: ${enemyLevel}、参加プレイヤー数: ${players.length}`);
+    const teamA_players = players.filter(p => p.team === 'A');
+    const teamB_players = players.filter(p => p.team === 'B');
+
+    if (teamA_players.length === 0 || teamB_players.length === 0) {
+        console.log("両チームにプレイヤーが必要です。");
+        players.find(p => p.isHost).ws.send(JSON.stringify({ type: 'ERROR', message: '両チームに最低1人プレイヤーが必要です。' }));
+        return;
+    }
 
     const units = [];
-    turnOrder = [];
+    teamUnitsA = [];
+    teamUnitsB = [];
     
-    // プレイヤーユニットの配置と初期化
-    players.forEach((p, index) => {
+    const occupiedPositions = [];
+
+    // チームAの初期配置
+    const teamA_Zone_X_Max = ZONE_WIDTH - 1;
+    teamA_players.forEach(p => {
         const charData = p.characterData;
-        const x = 0; 
-        const y = index; 
+        const pos = findRandomEmptyPosition(0, teamA_Zone_X_Max, 0, TILE_SIZE - 1, occupiedPositions);
         
         p.unit = {
             id: p.id,
-            playerId: p.id, // プレイヤーIDを保持
+            playerId: p.id, // クライアントの socket.id と一致
             name: p.name,
             level: p.level,
             hp: charData.stats.CURRENT_HP,
             maxHp: charData.stats.MAX_HP,
             currentMove: charData.stats.CURRENT_MOVE,
             maxMove: charData.stats.MAX_MOVE,
-            x: x,
-            y: y,
-            isEnemy: false,
+            x: pos.x,
+            y: pos.y,
+            team: 'A',
             initial: p.name.substring(0, 1).toUpperCase()
         };
         units.push(p.unit);
-        turnOrder.push(p.unit.id); 
+        teamUnitsA.push(p.unit.id);
+        occupiedPositions.push(pos);
     });
 
-    // NPCユニットの配置
-    const npcUnit = {
-        id: 'npc-e-1',
-        name: `敵Lv${enemyLevel}`,
-        level: parseInt(enemyLevel),
-        hp: 30 + parseInt(enemyLevel) * 20,
-        maxHp: 30 + parseInt(enemyLevel) * 20,
-        currentMove: 3,
-        maxMove: 3,
-        x: TILE_SIZE - 1, 
-        y: TILE_SIZE - 1,
-        isEnemy: true,
-        initial: 'E'
-    };
-    units.push(npcUnit);
-    turnOrder.push(npcUnit.id); 
-
-    // ターン順はここでは [P1, P2, NPC] の順だが、後でシャッフルや交互にするロジックが必要
+    // チームBの初期配置
+    const teamB_Zone_X_Min = TILE_SIZE - ZONE_WIDTH;
+    teamB_players.forEach(p => {
+        const charData = p.characterData;
+        const pos = findRandomEmptyPosition(teamB_Zone_X_Min, TILE_SIZE - 1, 0, TILE_SIZE - 1, occupiedPositions);
+        
+        p.unit = {
+            id: p.id,
+            playerId: p.id, 
+            name: p.name,
+            level: p.level,
+            hp: charData.stats.CURRENT_HP,
+            maxHp: charData.stats.MAX_HP,
+            currentMove: charData.stats.CURRENT_MOVE,
+            maxMove: charData.stats.MAX_MOVE,
+            x: pos.x,
+            y: pos.y,
+            team: 'B',
+            initial: p.name.substring(0, 1).toUpperCase()
+        };
+        units.push(p.unit);
+        teamUnitsB.push(p.unit.id);
+        occupiedPositions.push(pos);
+    });
     
     gameState = {
         boardSize: TILE_SIZE,
@@ -426,7 +452,8 @@ function startGame() {
         log: []
     };
     
-    currentTurnIndex = -1; // moveToNextTurnで0になるように
+    currentTeamTurn = 'A';
+    currentUnitIndex = -1; 
     
     const startMessage = JSON.stringify({
         type: 'GAME_START',
@@ -440,45 +467,51 @@ function startGame() {
     });
 
     // 最初のターンを開始
-    moveToNextTurn();
+    moveToNextUnit();
 }
 
 // -----------------------------------
 // ユーティリティ
 // -----------------------------------
 
-/**
- * 汎用的な距離計算 (マンハッタン距離)
- */
 function manhattanDistance(x1, y1, x2, y2) {
     return Math.abs(x1 - x2) + Math.abs(y1 - y2);
 }
 
-/**
- * 指定されたエリア内のユニットを返す（簡易形状処理）
- */
 function getUnitsInArea(centerX, centerY, targetShape, rangeValue) {
-    const affectedTiles = [];
-    
-    // スキルのターゲット形状に基づいて影響範囲を計算
-    if (targetShape === 'single') {
-        affectedTiles.push({ x: centerX, y: centerY });
-    } else if (targetShape === 'cross') {
-        // 例: rangeValueを半径と見立てる（ここでは固定の十字3x3を適用）
-        const radius = 1; 
-        for (let x = centerX - radius; x <= centerX + radius; x++) {
-            for (let y = centerY - radius; y <= centerY + radius; y++) {
-                if ((Math.abs(x - centerX) === 0 || Math.abs(y - centerY) === 0) && 
-                    x >= 0 && x < TILE_SIZE && y >= 0 && y < TILE_SIZE) {
-                    affectedTiles.push({ x: x, y: y });
-                }
-            }
+    // 省略
+    // ...
+    // ...
+}
+
+/**
+ * 指定されたゾーン内で空いているランダムな位置を見つける
+ * @param {number} xMin - ゾーンのX座標最小値
+ * @param {number} xMax - ゾーンのX座標最大値
+ * @param {number} yMin - ゾーンのY座標最小値
+ * @param {number} yMax - ゾーンのY座標最大値
+ * @param {Array<{x: number, y: number}>} occupiedPositions - 既に占有されている位置のリスト
+ * @returns {{x: number, y: number} | null} - 空き位置、またはゾーンに空きがない場合は null
+ */
+function findRandomEmptyPosition(xMin, xMax, yMin, yMax, occupiedPositions) {
+    const zonePositions = [];
+    for (let x = xMin; x <= xMax; x++) {
+        for (let y = yMin; y <= yMax; y++) {
+            zonePositions.push({ x: x, y: y });
         }
     }
-    
-    const affectedUnits = gameState.units.filter(unit => {
-        return affectedTiles.some(tile => tile.x === unit.x && tile.y === unit.y);
-    });
 
-    return affectedUnits;
+    // 既に占有されている位置を除外
+    const emptyPositions = zonePositions.filter(pos => 
+        !occupiedPositions.some(occ => occ.x === pos.x && occ.y === pos.y)
+    );
+
+    if (emptyPositions.length === 0) {
+        console.error(`ERROR: 指定されたゾーン (${xMin}, ${yMin}) to (${xMax}, ${yMax}) に空きがありません。`);
+        return { x: xMin, y: yMin }; // エラー回避のためゾーンの角を返す
+    }
+
+    // ランダムに選択
+    const randomIndex = Math.floor(Math.random() * emptyPositions.length);
+    return emptyPositions[randomIndex];
 }

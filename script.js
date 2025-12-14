@@ -3,21 +3,24 @@
 // ===================================
 
 const TILE_SIZE = 10;
+const ZONE_WIDTH = 3; // 自陣・敵陣の幅
 let socket = null;
-let localCharacter = null; // ゲームに持ち込む選択されたキャラクターのオリジナルデータ
-let currentUnit = null;    // 現在のターンで操作する自分のユニットの状態
-let gameState = null;      // サーバーから受信した最新のゲーム全体状態
+let localCharacter = null; 
+let selectedTeam = null;   
+let currentUnit = null;    
+let gameState = null;      
 let isHost = false;
-const MAX_BASE_POINTS = 5; // 初期レベル1の基本ポイント
-let availableSkills = []; // skills.jsonから読み込まれるスキルデータ
-let activeAction = null;   // 'move', 'skill' のいずれか
+const MAX_BASE_POINTS = 5; 
+const MIN_MOVE_VALUE = 1; // 新規: 移動力の最低値保証
+let availableSkills = []; 
+let activeAction = null;   
 
 // ===================================
 // キャラクター制作・管理
 // ===================================
 
 /**
- * skills.jsonからスキルデータを非同期で読み込む
+ * skills.jsonからスキルデータを非同期で読み込む (省略)
  */
 async function fetchSkills() {
     try {
@@ -34,7 +37,7 @@ async function fetchSkills() {
 }
 
 /**
- * 読み込んだスキルデータでセレクタを埋める
+ * 読み込んだスキルデータでセレクタを埋める (省略)
  */
 function populateSkillSelectors() {
     const selector1 = document.getElementById('char-skill-1');
@@ -58,8 +61,7 @@ function populateSkillSelectors() {
 }
 
 /**
- * 選択されたスキルの説明文を更新する
- * @param {number} index - スキルセレクタのインデックス (1 or 2)
+ * 選択されたスキルの説明文を更新する (省略)
  */
 function updateSkillDescription(index) {
     const selector = document.getElementById(`char-skill-${index}`);
@@ -82,7 +84,7 @@ function updateSkillDescription(index) {
 
 
 /**
- * 現在のレベルとステータス配分に基づいて残りポイントを更新する
+ * 現在のレベルとステータス配分に基づいて残りポイントを更新する (省略)
  */
 function updateStatsAllocation() {
     const level = parseInt(document.getElementById('char-level').value) || 1;
@@ -93,10 +95,7 @@ function updateStatsAllocation() {
     const agi = parseInt(document.getElementById('stat-agi').value) || 1;
     const luk = parseInt(document.getElementById('stat-luk').value) || 1;
 
-    // レベルに応じた合計割り振り可能ポイント
     const totalAllocatablePoints = MAX_BASE_POINTS + (level - 1) * 3;
-    
-    // 基礎値(1)を除いた割り振りポイントを計算
     const currentlyUsedPoints = (str - 1) + (dex - 1) + (vit - 1) + (int - 1) + (agi - 1) + (luk - 1); 
     const remainingPoints = totalAllocatablePoints - currentlyUsedPoints;
 
@@ -112,8 +111,7 @@ function updateStatsAllocation() {
 }
 
 /**
- * フォーム入力に基づいてキャラクターオブジェクトを生成する
- * @returns {object | null} 制作されたキャラクターデータ
+ * フォーム入力に基づいてキャラクターオブジェクトを生成/更新する
  */
 function createCharacter() {
     const remainingPoints = updateStatsAllocation();
@@ -135,12 +133,8 @@ function createCharacter() {
     const skillId1 = parseInt(document.getElementById('char-skill-1').value);
     const skillId2 = parseInt(document.getElementById('char-skill-2').value);
     
-    if (!skillId1) {
-        alert('スキル1を選択してください。');
-        return null;
-    }
-    if (skillId1 === skillId2) {
-        alert('スキルは重複して選択できません。');
+    if (!skillId1 || skillId1 === skillId2) {
+        alert('スキルを正しく選択してください。');
         return null;
     }
 
@@ -148,79 +142,77 @@ function createCharacter() {
         .filter(id => id) 
         .map(id => availableSkills.find(s => s.id === id));
     
-    if (selectedSkills.some(s => !s)) {
-        alert('選択されたスキルデータにエラーがあります。');
-        return null;
-    }
-    
-    // **移動力(MOVE)の決定ロジック**: (例: AGI + LUK / 2)
-    const baseMove = Math.max(3, agi + Math.floor(luk / 2)); 
+    // 最小移動力を MIN_MOVE_VALUE で保証
+    const baseMove = Math.max(MIN_MOVE_VALUE, agi + Math.floor(luk / 2)); 
+    const editingId = document.getElementById('editing-char-id').value;
+
 
     const newChar = {
-        id: Date.now(), 
+        id: editingId ? parseInt(editingId) : Date.now(), 
         name: name,
         level: level,
         stats: {
-            STR: str,
-            DEX: dex,
-            VIT: vit,
-            INT: int,
-            AGI: agi,
-            LUK: luk,
+            STR: str, DEX: dex, VIT: vit, INT: int, AGI: agi, LUK: luk,
             MAX_HP: 50 + vit * 10, 
             CURRENT_HP: 50 + vit * 10,
             MAX_MOVE: baseMove,
-            CURRENT_MOVE: baseMove, // 初期移動力
+            CURRENT_MOVE: baseMove, 
         },
         skills: selectedSkills, 
         createdAt: new Date().toISOString()
     };
     
-    localCharacter = newChar;
-    document.getElementById('current-selected-char').innerText = 
-        `${newChar.name} (Lv.${newChar.level}, HP:${newChar.stats.MAX_HP}, MOVE:${newChar.stats.MAX_MOVE})`;
-
-    updateSkillButtons(newChar.skills);
-    
     return newChar;
 }
 
 /**
- * 作成されたキャラクターのスキルに基づいて、ゲーム中のアクションボタンを更新する
- * @param {Array<object>} skills - キャラクターが持つスキルリスト
- */
-function updateSkillButtons(skills) {
-    const skillButtonContainer = document.getElementById('skill-buttons');
-    skillButtonContainer.innerHTML = '';
-    
-    skills.forEach((skill, index) => {
-        const button = document.createElement('button');
-        button.onclick = () => handleSkillAction(index); 
-        button.textContent = skill.name;
-        button.title = `${skill.description} (コスト: ${skill.cost})`;
-        skillButtonContainer.appendChild(button);
-    });
-}
-
-
-/**
- * 現在作成中のキャラクターをブラウザの LocalStorage に保存する
+ * 現在作成中のキャラクターをブラウザの LocalStorage に保存/更新し、持ち込みキャラとして選択する (変更なし)
  */
 function saveCharacter() {
     const newChar = createCharacter();
     if (!newChar) return;
     
-    const savedChars = JSON.parse(localStorage.getItem('boardGameCharacters') || '[]');
+    let savedChars = JSON.parse(localStorage.getItem('boardGameCharacters') || '[]');
+    const isEditingIndex = savedChars.findIndex(c => c.id === newChar.id);
     
-    savedChars.push(newChar);
+    if (isEditingIndex !== -1) {
+        savedChars[isEditingIndex] = newChar;
+        alert(`キャラクター「${newChar.name}」を更新しました。`);
+    } else {
+        savedChars.push(newChar);
+        alert(`キャラクター「${newChar.name}」を保存しました。`);
+    }
+
     localStorage.setItem('boardGameCharacters', JSON.stringify(savedChars));
-    
-    alert(`キャラクター「${newChar.name}」を保存しました。`);
-    loadCharacters(); // リストを更新
+    loadCharacters(); 
+    clearCharacterForm(); 
+
+    selectCharacterLocally(newChar.id);
 }
 
 /**
- * LocalStorageからキャラクターリストを読み込み、UIに表示する
+ * フォームの内容をクリアし、新規作成モードに戻す (省略)
+ */
+function clearCharacterForm() {
+    document.getElementById('char-name').value = '新キャラ';
+    document.getElementById('char-level').value = 1;
+    document.getElementById('stat-str').value = 1;
+    document.getElementById('stat-dex').value = 1;
+    document.getElementById('stat-vit').value = 1;
+    document.getElementById('stat-int').value = 1;
+    document.getElementById('stat-agi').value = 1;
+    document.getElementById('stat-luk').value = 1;
+    document.getElementById('char-skill-1').value = '';
+    document.getElementById('char-skill-2').value = '';
+    document.getElementById('editing-char-id').value = '';
+    document.getElementById('save-char-btn').textContent = '💾 作成キャラを保存';
+    updateStatsAllocation();
+    updateSkillDescription(1);
+    updateSkillDescription(2);
+}
+
+/**
+ * LocalStorageからキャラクターリストを読み込み、UIに表示する (持ち込むボタンを「選択」ボタンに変更)
  */
 function loadCharacters() {
     const savedChars = JSON.parse(localStorage.getItem('boardGameCharacters') || '[]');
@@ -238,19 +230,37 @@ function loadCharacters() {
     savedChars.forEach(char => {
         const item = document.createElement('li');
         item.innerHTML = `
-            <strong>${char.name}</strong> (Lv.${char.level}) 
-            STR:${char.stats.STR}, DEX:${char.stats.DEX}, VIT:${char.stats.VIT}, MOVE:${char.stats.MAX_MOVE} 
-            <button class="char-select-btn" onclick="selectCharacter(${char.id})">持ち込む</button>
+            <div>
+                <strong>${char.name}</strong> (Lv.${char.level}) 
+                STR:${char.stats.STR}, DEX:${char.stats.DEX}, MOVE:${char.stats.MAX_MOVE}
+            </div>
+            <div class="char-controls">
+                <button class="char-select-btn" onclick="selectCharacterLocally(${char.id})">選択</button>
+                <button class="char-edit-btn" onclick="editCharacter(${char.id})">編集</button>
+                <button class="char-delete-btn" onclick="deleteCharacter(${char.id})">削除</button>
+            </div>
         `;
         listElement.appendChild(item);
     });
+    
+    if (!localCharacter && savedChars.length > 0) {
+        selectCharacterLocally(savedChars[0].id);
+    } else if (localCharacter) {
+        const currentId = localCharacter.id;
+        const exists = savedChars.find(c => c.id === currentId);
+        if (exists) {
+            selectCharacterLocally(currentId);
+        } else {
+            localCharacter = null;
+            document.getElementById('current-selected-char').innerText = '**未選択**';
+        }
+    }
 }
 
 /**
- * 保存されたキャラクターを選択し、localCharacterとして設定する
- * @param {number} charId - 選択されたキャラクターのID
+ * 保存されたキャラクターを選択し、localCharacterとして設定する（ローカル処理のみ）
  */
-function selectCharacter(charId) {
+function selectCharacterLocally(charId) {
     const savedChars = JSON.parse(localStorage.getItem('boardGameCharacters') || '[]');
     const selected = savedChars.find(char => char.id === charId);
 
@@ -258,42 +268,117 @@ function selectCharacter(charId) {
         localCharacter = selected;
         document.getElementById('current-selected-char').innerText = 
             `${selected.name} (Lv.${selected.level}, HP:${selected.stats.MAX_HP}, MOVE:${selected.stats.MAX_MOVE})`;
-        alert(`キャラクター「${selected.name}」をゲームに持ち込むキャラクターとして選択しました。`);
         
         updateSkillButtons(selected.skills);
+        
+        document.getElementById('btn-team-a').disabled = false;
+        document.getElementById('btn-team-b').disabled = false;
+        
+        // 接続済みであれば、キャラクター選択の更新をサーバーに通知（再参加扱い）
+        if (socket && socket.readyState === WebSocket.OPEN) {
+             socket.send(JSON.stringify({
+                type: 'UPDATE_CHARACTER',
+                character: localCharacter 
+            }));
+        }
     } else {
         alert('選択されたキャラクターが見つかりません。');
     }
 }
 
+/**
+ * キャラクター編集のためにフォームにデータをロードする (省略)
+ */
+function editCharacter(charId) {
+    const savedChars = JSON.parse(localStorage.getItem('boardGameCharacters') || '[]');
+    const char = savedChars.find(c => c.id === charId);
 
-// ===================================
-// 接続 (WebSocketを想定)
-// ===================================
+    if (!char) return;
+    
+    document.getElementById('char-name').value = char.name;
+    document.getElementById('char-level').value = char.level;
+    document.getElementById('stat-str').value = char.stats.STR;
+    document.getElementById('stat-dex').value = char.stats.DEX;
+    document.getElementById('stat-vit').value = char.stats.VIT;
+    document.getElementById('stat-int').value = char.stats.INT;
+    document.getElementById('stat-agi').value = char.stats.AGI;
+    document.getElementById('stat-luk').value = char.stats.LUK;
+    
+    document.getElementById('char-skill-1').value = char.skills[0] ? char.skills[0].id : '';
+    document.getElementById('char-skill-2').value = char.skills[1] ? char.skills[1].id : '';
+
+    updateStatsAllocation();
+    updateSkillDescription(1);
+    updateSkillDescription(2);
+
+    document.getElementById('editing-char-id').value = charId;
+    document.getElementById('save-char-btn').textContent = '✅ キャラクターを更新';
+
+    document.getElementById('character-creation').scrollIntoView({ behavior: 'smooth' });
+}
 
 /**
- * ホストとしてゲーム部屋を建てる (参加人数1人でもゲーム開始)
+ * 保存されたキャラクターを削除する (省略)
  */
+function deleteCharacter(charId) {
+    if (!confirm('このキャラクターを本当に削除しますか？')) return;
+    
+    let savedChars = JSON.parse(localStorage.getItem('boardGameCharacters') || '[]');
+    savedChars = savedChars.filter(c => c.id !== charId);
+    localStorage.setItem('boardGameCharacters', JSON.stringify(savedChars));
+    
+    if (localCharacter && localCharacter.id === charId) {
+        localCharacter = null;
+        selectedTeam = null;
+        document.getElementById('current-selected-char').innerText = '**未選択**';
+        document.getElementById('current-selected-team').innerText = '**チーム未選択**';
+    }
+
+    loadCharacters();
+    alert('キャラクターを削除しました。');
+}
+
+/**
+ * 選択されたチームを記録し、サーバーに通知 (省略)
+ */
+function selectTeam(team) {
+    if (!localCharacter) {
+        alert('先にゲームに持ち込むキャラクターを選択してください。');
+        return;
+    }
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+        alert('先にホスト/参加でサーバーに接続してください。');
+        return;
+    }
+    
+    selectedTeam = team;
+    document.getElementById('current-selected-team').innerText = `チーム: ${team}`;
+
+    document.getElementById('btn-team-a').classList.remove('selected-team');
+    document.getElementById('btn-team-b').classList.remove('selected-team');
+    document.getElementById(`btn-team-${team.toLowerCase()}`).classList.add('selected-team');
+    
+    socket.send(JSON.stringify({
+        type: 'UPDATE_TEAM',
+        team: selectedTeam
+    }));
+}
+
+
+// ===================================
+// 接続とロビー管理 (変更なし)
+// ===================================
+
 function hostGame() {
     if (!localCharacter) {
         alert('ゲームに持ち込むキャラクターを選択してください。');
         return;
     }
 
-    const enemyLevel = document.getElementById('enemy-level').value;
     isHost = true;
-    
-    document.getElementById('host-controls').style.display = 'none';
-    document.getElementById('join-controls').style.display = 'none';
-    document.getElementById('host-info').style.display = 'block';
-    document.getElementById('connection-status').innerText = `接続ステータス: ホスト待機中 (敵Lv: ${enemyLevel})`;
-    
     connectToServer('ws://localhost:8080'); 
 }
 
-/**
- * ホストのIPアドレスを指定してゲームに参加する
- */
 function joinGame() {
     if (!localCharacter) {
         alert('ゲームに持ち込むキャラクターを選択してください。');
@@ -310,10 +395,18 @@ function joinGame() {
     connectToServer(`ws://${serverIp}`);
 }
 
-/**
- * WebSocket接続を確立し、イベントを設定する
- * @param {string} url - 接続先のWebSocket URL
- */
+function startGamePvP() {
+    if (!isHost || !socket || socket.readyState !== WebSocket.OPEN) {
+        alert('ホストとして接続している必要があります。');
+        return;
+    }
+    
+    const startMessage = {
+        type: 'HOST_START_GAME_PVP'
+    };
+    socket.send(JSON.stringify(startMessage));
+}
+
 function connectToServer(url) {
     if (socket) {
         socket.close();
@@ -323,20 +416,17 @@ function connectToServer(url) {
 
     socket.onopen = () => {
         document.getElementById('connection-status').innerText = '接続ステータス: 接続成功！ロビー待機中...';
+        document.getElementById('lobby-state-info').classList.remove('hidden'); 
         
         const message = {
             type: 'PLAYER_JOIN',
-            character: localCharacter 
+            character: localCharacter, 
+            team: selectedTeam 
         };
         socket.send(JSON.stringify(message));
         
-        // ホストの場合、プレイヤー参加後すぐにゲーム開始信号を送る
         if (isHost) {
-            const startMessage = {
-                type: 'HOST_START_GAME_IMMEDIATELY',
-                enemyLevel: document.getElementById('enemy-level').value
-            };
-            socket.send(JSON.stringify(startMessage));
+            document.getElementById('start-game-btn').classList.remove('hidden');
         }
     };
 
@@ -348,7 +438,8 @@ function connectToServer(url) {
     socket.onclose = () => {
         document.getElementById('connection-status').innerText = '接続ステータス: サーバーとの接続が切断されました。';
         document.getElementById('game-board-section').classList.add('hidden');
-        document.getElementById('lobby-section').classList.remove('hidden');
+        document.getElementById('lobby-state-info').classList.add('hidden'); 
+        document.getElementById('start-game-btn').classList.add('hidden');
         gameState = null;
         currentUnit = null;
     };
@@ -361,10 +452,9 @@ function connectToServer(url) {
 
 /**
  * サーバーから受信したメッセージを処理する
- * @param {object} message - サーバーからのメッセージオブジェクト
+ * バグ修正: 自分のユニットがまだ gameState に存在しない場合の処理を追加
  */
 function handleServerMessage(message) {
-    // アクティブなアクションがあればリセット
     if (message.type !== 'STATE_UPDATE' && message.type !== 'TURN_CHANGE') {
         clearActionState();
     }
@@ -374,7 +464,6 @@ function handleServerMessage(message) {
             updatePlayerList(message.players);
             break;
         case 'GAME_START':
-            // ... (UI非表示/表示ロジック) ...
             document.getElementById('character-creation').classList.add('hidden');
             document.getElementById('character-management').classList.add('hidden');
             document.getElementById('lobby-section').classList.add('hidden');
@@ -389,25 +478,37 @@ function handleServerMessage(message) {
             updateGameInfo(gameState);
             break;
         case 'TURN_CHANGE':
-            gameState = message.newState; // 最新状態を再度受け取る
+            gameState = message.newState; 
             updateBoard(gameState);
             
-            const myPlayer = gameState.units.find(u => u.playerId === socket.id);
-            if (myPlayer) {
-                currentUnit = myPlayer;
+            // 【★バグ修正の核心】
+            // 自分のユニットIDは `socket.id` (プレイヤーID)と一致しているはず
+            const myUnit = gameState.units.find(u => u.playerId === socket.id);
+            
+            // まだユニットが生成されていない場合（最初のターン変更メッセージだが自分の番ではない等）
+            if (!myUnit) {
+                 currentUnit = null;
+                 // 相手ターンなのでアクションパネルを隠す
+                 document.getElementById('action-panel').classList.add('hidden');
+                 document.getElementById('current-turn').innerText = `現在のターン: チーム ${message.currentTeam} のターンです。`;
+                 document.getElementById('action-message').innerText = `相手チームのターンです。待機中...`;
+                 updateUnitStatsDisplay();
+                 return;
             }
 
-            document.getElementById('current-turn').innerText = `現在のターン: ${message.currentPlayerName}`;
+            currentUnit = myUnit;
+
+            document.getElementById('current-turn').innerText = `現在のターン: チーム ${message.currentTeam} - ${message.currentPlayerName} の行動`;
             
-            if (message.isYourTurn) {
-                document.getElementById('action-panel').style.pointerEvents = 'auto';
+            // 自分のチームのターン、かつ操作対象のユニットが自分のものかチェック
+            if (message.currentTeam === selectedTeam && message.currentPlayerId === myUnit.id) {
+                document.getElementById('action-panel').classList.remove('hidden'); // パネル表示
                 document.getElementById('action-message').innerText = '行動を選択してください。';
-                updateUnitStatsDisplay();
             } else {
-                document.getElementById('action-panel').style.pointerEvents = 'none';
-                document.getElementById('action-message').innerText = '相手のターンです。待機中...';
-                updateUnitStatsDisplay();
+                document.getElementById('action-panel').classList.add('hidden'); // パネル非表示
+                document.getElementById('action-message').innerText = `チーム ${message.currentTeam} のターンです。待機中...`;
             }
+            updateUnitStatsDisplay();
             break;
         case 'ERROR':
             alert(`エラー: ${message.message}`);
@@ -419,9 +520,6 @@ function handleServerMessage(message) {
 // ゲームボードとUI
 // ===================================
 
-/**
- * ユニットの現在の移動力などを表示する
- */
 function updateUnitStatsDisplay() {
     if (currentUnit) {
         document.getElementById('display-move').textContent = currentUnit.currentMove;
@@ -432,23 +530,31 @@ function updateUnitStatsDisplay() {
     }
 }
 
-/**
- * 参加プレイヤーリストを更新する
- * (前回のコードから変更なし)
- */
 function updatePlayerList(players) {
     const listElement = document.getElementById('player-list');
     listElement.innerHTML = '';
     players.forEach(p => {
         const item = document.createElement('li');
-        item.textContent = `${p.name} (Lv.${p.level}) [${p.isHost ? 'ホスト' : '参加者'}]`;
+        item.textContent = `${p.name} (Lv.${p.level}) [チーム: ${p.team || '未定'}] ${p.isHost ? '(ホスト)' : ''}`;
         listElement.appendChild(item);
     });
 }
 
+function updateSkillButtons(skills) {
+    const skillButtonContainer = document.getElementById('skill-buttons');
+    skillButtonContainer.innerHTML = '';
+    
+    skills.forEach((skill, index) => {
+        const button = document.createElement('button');
+        button.onclick = () => handleSkillAction(index); 
+        button.textContent = skill.name;
+        button.title = `${skill.description} (コスト: ${skill.cost})`;
+        skillButtonContainer.appendChild(button);
+    });
+}
+
 /**
- * ゲームボードを初期化し、マス目を生成する
- * (前回のコードから変更なし)
+ * ゲームボードを初期化し、マス目を生成する (エリアクラスを追加)
  */
 function initializeBoard(initialState) {
     const board = document.getElementById('game-board');
@@ -458,11 +564,22 @@ function initializeBoard(initialState) {
     board.style.gridTemplateRows = `repeat(${TILE_SIZE}, 1fr)`;
 
     for (let i = 0; i < TILE_SIZE * TILE_SIZE; i++) {
+        const x = i % TILE_SIZE;
+        const y = Math.floor(i / TILE_SIZE);
+        
         const tile = document.createElement('div');
         tile.classList.add('tile');
-        tile.dataset.x = i % TILE_SIZE;
-        tile.dataset.y = Math.floor(i / TILE_SIZE);
-        tile.onclick = handleTileClick; // クリックイベントを設定
+        tile.dataset.x = x;
+        tile.dataset.y = y;
+        tile.onclick = handleTileClick; 
+        
+        // エリアクラスの付与
+        if (x < ZONE_WIDTH) {
+            tile.classList.add('team-A-zone');
+        } else if (x >= TILE_SIZE - ZONE_WIDTH) {
+            tile.classList.add('team-B-zone');
+        }
+        
         board.appendChild(tile);
     }
 
@@ -470,15 +587,12 @@ function initializeBoard(initialState) {
 }
 
 /**
- * ボード上のユニット配置を更新する
- * (前回のコードから変更なし)
+ * ボード上のユニット配置を更新する (省略)
  */
 function updateBoard(newState) {
     document.querySelectorAll('.tile').forEach(tile => {
         tile.innerHTML = '';
-        tile.classList.remove('occupied');
-        // ハイライトクラスもリセット
-        tile.classList.remove('move-range', 'target-range', 'hover-highlight');
+        tile.classList.remove('occupied', 'move-range', 'target-range', 'hover-highlight');
         tile.onclick = handleTileClick;
     });
 
@@ -487,40 +601,36 @@ function updateBoard(newState) {
         if (tile) {
             tile.classList.add('occupied');
             const unitElement = document.createElement('div');
-            unitElement.classList.add(unit.isEnemy ? 'enemy-unit' : 'player-unit');
+            unitElement.classList.add('unit', `team-${unit.team}`); 
             unitElement.textContent = unit.initial || unit.name.substring(0, 1);
-            unitElement.title = `${unit.name} - HP: ${unit.hp}/${unit.maxHp}`;
+            unitElement.title = `${unit.name} (チーム${unit.team}) - HP: ${unit.hp}/${unit.maxHp}`;
             tile.appendChild(unitElement);
         }
     });
 }
 
+function updateGameInfo(newState) {
+    // ターン情報、HPバーなどがあればここで更新
+}
+
 // ===================================
-// プレイヤーアクション (クライアント側UI制御)
+// プレイヤーアクション (クライアント側UI制御) (変更なし)
 // ===================================
 
-/**
- * 移動モードを開始する
- */
 function handleMoveAction() {
     if (!currentUnit || currentUnit.currentMove <= 0) {
         document.getElementById('action-message').innerText = '移動力が残っていません。';
         return;
     }
     
-    clearActionState(); // 既存のアクションをリセット
+    clearActionState(); 
     activeAction = 'move';
     document.getElementById('action-message').innerText = `移動先をクリックしてください (移動力: ${currentUnit.currentMove})。`;
     
-    // サーバーに移動可能範囲の計算を要求する（簡易のため、ここではクライアント側で計算）
     const range = getMoveRange(currentUnit.x, currentUnit.y, currentUnit.currentMove);
     highlightTiles(range, 'move-range');
 }
 
-/**
- * スキルモードを開始する
- * @param {number} skillIndex - localCharacter.skills配列のインデックス
- */
 function handleSkillAction(skillIndex) {
     if (!currentUnit) return;
     
@@ -531,15 +641,10 @@ function handleSkillAction(skillIndex) {
     activeAction = { type: 'skill', skill: skill, index: skillIndex };
     document.getElementById('action-message').innerText = `${skill.name} のターゲットを選択してください。`;
     
-    // サーバーに射程計算を要求する（簡易のため、ここではクライアント側で計算）
     const range = getSkillRange(currentUnit.x, currentUnit.y, skill);
     highlightTiles(range, 'target-range');
 }
 
-/**
- * タイルクリック時のハンドラ
- * @param {Event} event - クリックイベント
- */
 function handleTileClick(event) {
     if (!activeAction || !currentUnit) return;
     
@@ -561,9 +666,6 @@ function handleTileClick(event) {
     }
 }
 
-/**
- * 移動リクエストをサーバーに送信
- */
 function sendMoveRequest(x, y) {
     const message = {
         type: 'ACTION_MOVE',
@@ -575,9 +677,6 @@ function sendMoveRequest(x, y) {
     clearActionState();
 }
 
-/**
- * スキルリクエストをサーバーに送信
- */
 function sendSkillRequest(skillIndex, x, y) {
     const skill = localCharacter.skills[skillIndex];
     if (!skill) return;
@@ -593,10 +692,6 @@ function sendSkillRequest(skillIndex, x, y) {
     clearActionState();
 }
 
-
-/**
- * ターンを終了する
- */
 function endTurn() {
     if (!socket || socket.readyState !== WebSocket.OPEN) {
         alert('サーバーに接続されていません。');
@@ -608,14 +703,11 @@ function endTurn() {
     };
     socket.send(JSON.stringify(message));
     
-    document.getElementById('action-panel').style.pointerEvents = 'none';
-    document.getElementById('action-message').innerText = 'ターンを終了しました。相手のターンです。';
+    document.getElementById('action-panel').classList.add('hidden');
+    document.getElementById('action-message').innerText = 'ターンを終了しました。相手チームのターンです。';
     clearActionState();
 }
 
-/**
- * 現在のアクションモードとボードのハイライトをリセットする
- */
 function clearActionState() {
     activeAction = null;
     document.querySelectorAll('.tile').forEach(tile => {
@@ -623,21 +715,14 @@ function clearActionState() {
     });
 }
 
-// ===================================
-// クライアント側の簡易範囲計算 (サーバーで検証されるべきロジック)
-// ===================================
+// ------------------------------------
+// クライアント側簡易範囲計算 (変更なし)
+// ------------------------------------
 
-/**
- * 汎用的な距離計算 (マンハッタン距離)
- */
 function manhattanDistance(x1, y1, x2, y2) {
     return Math.abs(x1 - x2) + Math.abs(y1 - y2);
 }
 
-/**
- * 移動可能範囲を計算する（障害物は無視した簡易版）
- * @returns {Array<object>} {x, y}の配列
- */
 function getMoveRange(startX, startY, moveValue) {
     const range = [];
     for (let x = 0; x < TILE_SIZE; x++) {
@@ -650,10 +735,6 @@ function getMoveRange(startX, startY, moveValue) {
     return range;
 }
 
-/**
- * スキルの射程範囲を計算する
- * @returns {Array<object>} {x, y}の配列
- */
 function getSkillRange(startX, startY, skill) {
     const range = [];
     let effectiveRange = 0;
@@ -662,10 +743,8 @@ function getSkillRange(startX, startY, skill) {
         effectiveRange = skill.range_value;
     } else if (skill.range_type === 'stat_dependent' && localCharacter) {
         const statValue = localCharacter.stats[skill.range_value];
-        // 例: DEX依存の場合、射程 = 2 + DEX / 2
         effectiveRange = 2 + Math.floor(statValue / 2); 
     } else if (skill.range_type === 'move_path') {
-        // 突撃系は移動力範囲内全てをターゲットとするが、ここでは簡易的に最大移動力を使う
         effectiveRange = localCharacter.stats.MAX_MOVE; 
     }
 
@@ -680,9 +759,6 @@ function getSkillRange(startX, startY, skill) {
     return range;
 }
 
-/**
- * 指定された座標のタイルにクラスを付与する
- */
 function highlightTiles(coords, className) {
     coords.forEach(coord => {
         const tile = document.querySelector(`.tile[data-x="${coord.x}"][data-y="${coord.y}"]`);
@@ -692,8 +768,9 @@ function highlightTiles(coords, className) {
     });
 }
 
+
 // ===================================
-// 初期化
+// 初期化 (変更なし)
 // ===================================
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -701,13 +778,13 @@ document.addEventListener('DOMContentLoaded', () => {
     loadCharacters();
     updateStatsAllocation(); 
 
-    // ダミーの初期状態データ
     const dummyState = {
         units: [
-            { name: "P1", level: 1, hp: 100, maxHp: 100, x: 0, y: 0, isEnemy: false, initial: 'P1' },
-            { name: "E", level: 1, hp: 50, maxHp: 50, x: 9, y: 9, isEnemy: true, initial: 'E' }
+            { name: "P1", level: 1, hp: 100, maxHp: 100, x: 0, y: 0, team: 'A', initial: 'P1', playerId: 'dummyA' },
+            { name: "P2", level: 1, hp: 50, maxHp: 50, x: 9, y: 9, team: 'B', initial: 'P2', playerId: 'dummyB' }
         ]
     };
     initializeBoard(dummyState);
     document.getElementById('game-board-section').classList.add('hidden');
+    clearCharacterForm();
 });

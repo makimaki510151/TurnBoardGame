@@ -55,7 +55,7 @@ textarea, input[type="text"], input[type="number"], select {
     box-sizing: border-box;
 }
 
-/* キャラクター制作セクションのスタイル */
+/* キャラクター制作セクションのスタイル (変更なし) */
 #character-creation input[type="text"], 
 #character-creation input[type="number"] {
     width: auto;
@@ -75,7 +75,7 @@ textarea, input[type="text"], input[type="number"], select {
     margin-right: 30px;
 }
 
-/* スキル選択グループ */
+/* スキル選択グループ (変更なし) */
 .skill-select-group {
     margin-bottom: 15px;
     padding: 10px;
@@ -105,14 +105,39 @@ textarea, input[type="text"], input[type="number"], select {
     align-items: center;
 }
 
-.char-select-btn {
-    background-color: #28a745;
+.char-controls button {
     padding: 5px 10px;
-    font-size: 0.9em;
+    font-size: 0.8em;
+    margin: 0 2px;
 }
 
-.char-select-btn:hover {
-    background-color: #1e7e34;
+.char-select-btn {
+    background-color: #28a745;
+}
+.char-edit-btn {
+    background-color: #ffc107;
+    color: #333;
+}
+.char-delete-btn {
+    background-color: #dc3545;
+}
+
+/* チーム選択ボタンのスタイル (変更なし) */
+#btn-team-a, #btn-team-b {
+    padding: 12px 25px;
+    font-weight: bold;
+    margin: 10px;
+    border: 2px solid transparent;
+}
+#btn-team-a {
+    background-color: #007bff;
+}
+#btn-team-b {
+    background-color: #dc3545;
+}
+
+.selected-team {
+    border: 4px solid gold !important;
 }
 
 /* ゲームボードのスタイル */
@@ -124,13 +149,11 @@ textarea, input[type="text"], input[type="number"], select {
     height: 500px;
     margin: 20px auto;
     border: 2px solid #333;
-    /* クリックを無効にするオーバーレイ */
     position: relative;
 }
 
 .tile {
     border: 1px solid #ddd;
-    background-color: #a0d4a0; 
     display: flex;
     justify-content: center;
     align-items: center;
@@ -139,18 +162,32 @@ textarea, input[type="text"], input[type="number"], select {
     cursor: default;
 }
 
+/* エリアごとの背景色 */
+.tile.team-A-zone {
+    background-color: #cce0ff; /* 淡い青 */
+}
+
+.tile.team-B-zone {
+    background-color: #ffcccc; /* 淡い赤 */
+}
+
+.tile:not(.team-A-zone):not(.team-B-zone) {
+    background-color: #a0d4a0; /* 乱戦エリア (緑) */
+}
+
+
 .tile.occupied {
     background-color: #ffcc99; 
 }
 
 /* 行動範囲/ターゲット範囲のハイライト */
 .tile.move-range {
-    background-color: #6a9ed9; /* 移動可能範囲：青 */
+    background-color: #6a9ed9; 
     cursor: pointer;
 }
 
 .tile.target-range {
-    background-color: #d96a6a; /* ターゲット範囲：赤 */
+    background-color: #d96a6a; 
     cursor: crosshair;
 }
 
@@ -159,7 +196,7 @@ textarea, input[type="text"], input[type="number"], select {
 }
 
 
-.player-unit, .enemy-unit {
+.unit {
     width: 80%;
     height: 80%;
     border-radius: 50%;
@@ -169,15 +206,16 @@ textarea, input[type="text"], input[type="number"], select {
     font-weight: bold;
     color: white;
     z-index: 10;
-    position: relative; /* ハイライトの上に表示するため */
+    position: relative;
 }
 
-.player-unit {
-    background-color: #007bff;
+/* チームごとのユニットカラー */
+.unit.team-A {
+    background-color: #007bff; /* 青 */
 }
 
-.enemy-unit {
-    background-color: #dc3545;
+.unit.team-B {
+    background-color: #dc3545; /* 赤 */
 }
 
 .hidden {
